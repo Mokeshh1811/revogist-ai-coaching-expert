@@ -6,7 +6,6 @@
       "dom.iterable",
       "esnext"
     ],
-    
     "allowJs": true,
     "skipLibCheck": true,
     "strict": false,
@@ -17,7 +16,13 @@
     "moduleResolution": "node",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "jsx": "preserve",
+
+    // ✅ Changed this line
+    "jsx": "react-jsx",
+
+    // ✅ Optionally add React types (safe for most Next.js projects)
+    "types": ["react", "react-dom"],
+
     "plugins": [
       {
         "name": "next"
