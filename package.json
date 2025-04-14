@@ -41,15 +41,9 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "22.13.11",
-<<<<<<< HEAD
-    "@types/react": "19.0.12",
-    "@types/react-dom": "18.0.11",
-=======
     "@types/react": "^19.0.12",
     "@types/react-dom": "^19.1.2",
->>>>>>> eae61b2 (Fix: Add React type definitions for JSX namespace)
     "tailwindcss": "^4",
     "typescript": "5.8.2"
   }
 }
-
