@@ -17,11 +17,14 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
 
-    // ✅ Changed this line
+    // ✅ Set to use the new JSX transform (React 17+)
     "jsx": "react-jsx",
 
-    // ✅ Optionally add React types (safe for most Next.js projects)
+    // ✅ Ensure JSX namespace is available
     "types": ["react", "react-dom"],
+
+    // ✅ Ensure types are found if they’re custom or expanded
+    "typeRoots": ["./node_modules/@types"],
 
     "plugins": [
       {
