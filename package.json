@@ -42,6 +42,7 @@
     "@tailwindcss/postcss": "^4",
     "@types/node": "22.13.11",
     "@types/react": "19.0.12",
+    "@types/react-dom": "18.0.11",
     "tailwindcss": "^4",
     "typescript": "5.8.2"
   }
