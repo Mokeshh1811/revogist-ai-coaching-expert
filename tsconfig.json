@@ -1,11 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2017",
-    "lib": [
-      "dom",
-      "dom.iterable",
-      "esnext"
-    ],
+    "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": false,
@@ -17,13 +13,9 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
 
-    // ✅ Set to use the new JSX transform (React 17+)
     "jsx": "react-jsx",
-
-    // ✅ Ensure JSX namespace is available
     "types": ["react", "react-dom"],
 
-    // ✅ Ensure types are found if they’re custom or expanded
     "typeRoots": ["./node_modules/@types"],
 
     "plugins": [
@@ -34,11 +26,11 @@
   },
   "include": [
     "next-env.d.ts",
-    ".next/types/**/*.ts",
     "**/*.ts",
-    "**/*.tsx"
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    "global.d.ts"
+
   ],
-  "exclude": [
-    "node_modules"
-  ]
+  "exclude": ["node_modules"]
 }
