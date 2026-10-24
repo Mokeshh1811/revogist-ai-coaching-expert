@@ -56,6 +56,8 @@ function DiscussionRoom() {
   const [transcribe, setTranscribe] = useState("");
   const [conversation, setConversation] = useState([]);
   const conversationRef = useRef([]);
+  const heldTextRef = useRef("");
+  const silenceTimerRef = useRef(null);
   const [enableFeedbackNotes, setEnableFeedbackNotes] = useState(false);
   const [isLoadingFeedback, setIsLoadingFeedback] = useState(false);
 
@@ -117,12 +119,44 @@ function DiscussionRoom() {
     setEnableMic(true);
     enableMicRef.current = true;
 
+    const SILENCE_MS = 1200;
+
+    function clearSilenceTimer() {
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = null;
+      }
+    }
+
+    // Any new speech pushes the "they're done talking" deadline forward.
+    // Only once this fires with nothing new in the meantime do we treat
+    // the held text as a complete turn and send it to the AI — so a short
+    // breath mid-sentence doesn't get sent as a half-finished message.
+    function scheduleSilenceCheck() {
+      clearSilenceTimer();
+      silenceTimerRef.current = setTimeout(finalizeTurn, SILENCE_MS);
+    }
+
+    function finalizeTurn() {
+      clearSilenceTimer();
+      const userMessage = heldTextRef.current.trim();
+      heldTextRef.current = "";
+      setTranscribe("");
+
+      if (!userMessage || isSpeaking.current) return;
+
+      isSpeaking.current = true;
+      if (recognitionRef.current) recognitionRef.current.stop();
+      commitTurn(userMessage);
+    }
+
     // Android Chrome's continuous mode is unreliable: it can re-emit
     // overlapping "final" results that restate everything heard so far,
     // producing garbled, duplicated transcripts. Listening for one
-    // utterance per session (continuous = false) and restarting right
-    // after avoids that bug entirely, at the cost of a brief gap between
-    // sentences while a new session spins up.
+    // utterance per session (continuous = false) and chaining a fresh
+    // session right after avoids that bug, while scheduleSilenceCheck
+    // above is what actually "holds" the mic across those chained
+    // sessions until the person truly stops talking.
     function startListening() {
       if (!enableMicRef.current || isSpeaking.current) return;
 
@@ -137,6 +171,8 @@ function DiscussionRoom() {
       let finalText = "";
 
       recognition.onresult = (event) => {
+        if (isSpeaking.current) return;
+
         let interimText = "";
         for (let i = 0; i < event.results.length; i++) {
           const text = event.results[i][0].transcript;
@@ -146,7 +182,9 @@ function DiscussionRoom() {
             interimText += text;
           }
         }
-        setTranscribe((finalText + interimText).trim());
+
+        setTranscribe((heldTextRef.current + " " + finalText + interimText).trim());
+        scheduleSilenceCheck();
       };
 
       recognition.onerror = (event) => {
@@ -159,12 +197,13 @@ function DiscussionRoom() {
 
       recognition.onend = () => {
         isRecognitionActive.current = false;
-        const userMessage = finalText.trim();
-        setTranscribe("");
-
-        if (userMessage) {
-          commitTurn(userMessage);
-        } else if (enableMicRef.current && !isSpeaking.current) {
+        const chunk = finalText.trim();
+        if (chunk) {
+          heldTextRef.current = (heldTextRef.current + " " + chunk).trim();
+        }
+        // Keep the mic effectively "held" open by chaining the next
+        // session; scheduleSilenceCheck is what decides when we're done.
+        if (enableMicRef.current && !isSpeaking.current) {
           startListening();
         }
       };
@@ -174,12 +213,13 @@ function DiscussionRoom() {
 
     function resumeListening() {
       isSpeaking.current = false;
+      heldTextRef.current = "";
+      setTranscribe("");
       if (enableMicRef.current) startListening();
     }
 
     async function commitTurn(userMessage) {
       setConversation((prev) => [...prev, { role: "user", content: userMessage }]);
-      isSpeaking.current = true;
 
       try {
         const aiResponse = await AIModel(
@@ -215,6 +255,11 @@ function DiscussionRoom() {
   };
 
   const disconnect = async () => {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    heldTextRef.current = "";
     setTranscribe("");
 
     setEnableMic(false);
@@ -242,6 +287,7 @@ function DiscussionRoom() {
 
   useEffect(() => {
     return () => {
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       if (recognitionRef.current) recognitionRef.current.abort();
     };
   }, []);
