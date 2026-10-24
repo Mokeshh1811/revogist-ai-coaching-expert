@@ -3,9 +3,7 @@
 import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { XIcon } from "lucide-react";
-
-// Assuming you have this utility elsewhere
-const cn = (...classes) => classes.filter(Boolean).join(' '); // You can replace this with your actual utility if it's imported
+import { cn } from "@/lib/utils";
 
 // Dialog Component
 function Dialog({ ...props }) {

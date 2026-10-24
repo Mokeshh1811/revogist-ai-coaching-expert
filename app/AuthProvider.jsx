@@ -2,7 +2,6 @@
 import { useUser } from '@stackframe/stack';
 import { useMutation } from 'convex/react';
 import React, { useEffect, useState } from 'react';
-import { CreateUser } from '../convex/users';
 import { api } from '../convex/_generated/api';
 import { UserContext } from './_context/UserContext';
  

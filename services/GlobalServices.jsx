@@ -3,10 +3,12 @@ import CoachingOptions from "./Options";
 import { PollyClient, SynthesizeSpeechCommand } from "@aws-sdk/client-polly";
 
 // Initialize OpenAI with OpenRouter
+// NOTE: this module must only ever be imported from server-side code
+// (API routes / route handlers) — it reads secret keys from the
+// environment and must never be bundled into client components.
 const openai = new OpenAI({
   baseURL: "https://openrouter.ai/api/v1",
-  apiKey: process.env.NEXT_PUBLIC_AI_OPENROUTER,
-  dangerouslyAllowBrowser: true,
+  apiKey: process.env.OPENROUTER_API_KEY,
 });
 
 /**
@@ -73,13 +75,16 @@ export const AIModelToGenerateFeedbackAndNotes = async (coachingOption, conversa
 
 /**
  * Converts text to speech using AWS Polly based on the expert's voice name.
+ * Returns the raw MP3 bytes — callers that need a playable URL (browser code)
+ * should request this through the /api/ai/tts route instead of calling this
+ * directly, since Blob/URL.createObjectURL only exist in the browser.
  */
 export const ConvertTextToSpeech = async (text, expertName) => {
   const pollyClient = new PollyClient({
     region: "us-east-1",
     credentials: {
-      accessKeyId: process.env.NEXT_PUBLIC_AWS_ACCESS_KEY_ID,
-      secretAccessKey: process.env.NEXT_PUBLIC_AWS_SECRET_KEY,
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
     },
   });
 
@@ -89,14 +94,6 @@ export const ConvertTextToSpeech = async (text, expertName) => {
     VoiceId: expertName,
   });
 
-  try {
-    const { AudioStream } = await pollyClient.send(command);
-    const audioArrayBuffer = await AudioStream.transformToByteArray();
-    const audioBlob = new Blob([audioArrayBuffer], { type: "audio/mp3" });
-    const audioUrl = URL.createObjectURL(audioBlob);
-    return audioUrl;
-  } catch (e) {
-    console.error("❌ Polly TTS Error:", e);
-    return null;
-  }
+  const { AudioStream } = await pollyClient.send(command);
+  return AudioStream.transformToByteArray();
 };

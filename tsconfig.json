@@ -1,5 +1,9 @@
 {
   "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"]
+    },
     "target": "ES2017",
     "lib": [
       "dom",
@@ -16,16 +20,17 @@
     "moduleResolution": "node",
     "resolveJsonModule": true,
     "isolatedModules": true,
-
     // ✅ Set to use the new JSX transform (React 17+)
-    "jsx": "react-jsx",
-
+    "jsx": "preserve",
     // ✅ Ensure JSX namespace is available
-    "types": ["react", "react-dom"],
-
+    "types": [
+      "react",
+      "react-dom"
+    ],
     // ✅ Ensure types are found if they’re custom or expanded
-    "typeRoots": ["./node_modules/@types"],
-
+    "typeRoots": [
+      "./node_modules/@types"
+    ],
     "plugins": [
       {
         "name": "next"

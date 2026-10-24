@@ -7,13 +7,38 @@ import { api } from "../../../../convex/_generated/api";
 import { CoachingExpert } from "../../../../services/Options";
 import { UserButton } from "@stackframe/stack";
 import Image from "next/image";
-import {
-  AIModel,
-  AIModelToGenerateFeedbackAndNotes,
-  ConvertTextToSpeech,
-} from "../../../../services/GlobalServices";
 import { toast } from "sonner";
 import Webcam from "react-webcam";
+
+async function AIModel(topic, coachingOption, msg, previousMessages = []) {
+  const res = await fetch("/api/ai/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ topic, coachingOption, msg, previousMessages }),
+  });
+  const { message } = await res.json();
+  return message;
+}
+
+async function AIModelToGenerateFeedbackAndNotes(coachingOption, conversation) {
+  const res = await fetch("/api/ai/summary", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ coachingOption, conversation }),
+  });
+  return res.json();
+}
+
+async function ConvertTextToSpeech(text, expertName) {
+  const res = await fetch("/api/ai/tts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, expertName }),
+  });
+  if (!res.ok) return null;
+  const audioBlob = await res.blob();
+  return URL.createObjectURL(audioBlob);
+}
 
 
 function DiscussionRoom() {

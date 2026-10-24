@@ -6,8 +6,8 @@ import {
     DialogHeader,
     DialogTitle,
     DialogTrigger,
-} from "../../../../@/components/ui/dialog"
-import { Textarea } from "../../../../@/components/ui/textarea"
+} from "@/components/ui/dialog"
+import { Textarea } from "@/components/ui/textarea"
 import { CoachingExpert } from '../../../../services/Options';
 import Image from  'next/image';
 import { DialogClose } from '@radix-ui/react-dialog';
