@@ -41,6 +41,8 @@ async function ConvertTextToSpeech(text, expertName) {
 }
 
 
+const SILENCE_DEBOUNCE_MS = 1200;
+
 function DiscussionRoom() {
   const { roomid } = useParams();
   const DiscussionRoomData = useQuery(api.DiscussionRoom.GetDiscussionRoom, {
@@ -55,11 +57,18 @@ function DiscussionRoom() {
   const isSpeaking = useRef(false);
   const [transcribe, setTranscribe] = useState("");
   const [conversation, setConversation] = useState([]);
+  const conversationRef = useRef([]);
+  const finalTranscriptRef = useRef("");
+  const silenceTimerRef = useRef(null);
   const [enableFeedbackNotes, setEnableFeedbackNotes] = useState(false);
   const [isLoadingFeedback, setIsLoadingFeedback] = useState(false);
 
   const UpdateConversation = useMutation(api.DiscussionRoom.UpdateConversation);
   const updateSummary=useMutation(api.DiscussionRoom.UpdateSummary);
+
+  useEffect(() => {
+    conversationRef.current = conversation;
+  }, [conversation]);
 
 
 
@@ -102,15 +111,15 @@ function DiscussionRoom() {
   const connectToServer = () => {
     if (enableMicRef.current || isRecognitionActive.current) return;
 
-    setEnableMic(true);
-    enableMicRef.current = true;
-
     if (!("webkitSpeechRecognition" in window)) {
       alert(
         "Your browser does not support Speech Recognition. Try using Google Chrome."
       );
       return;
     }
+
+    setEnableMic(true);
+    enableMicRef.current = true;
 
     const recognition = new window.webkitSpeechRecognition();
     recognitionRef.current = recognition;
@@ -120,65 +129,79 @@ function DiscussionRoom() {
     recognition.interimResults = true;
     recognition.lang = "en-US";
 
-    recognition.onresult = async (event) => {
+    // Mobile speech recognition often fires several "final" results for a
+    // single spoken sentence (one per short pause between words). We buffer
+    // every final chunk and only treat the turn as complete once there has
+    // been a real pause in speech, so one utterance becomes one message.
+    const commitTurn = async () => {
+      const userMessage = finalTranscriptRef.current.trim();
+      finalTranscriptRef.current = "";
+      setTranscribe("");
+
+      if (!userMessage || isSpeaking.current) return;
+
+      setConversation((prev) => [...prev, { role: "user", content: userMessage }]);
+
+      isSpeaking.current = true;
+      recognition.stop();
+      isRecognitionActive.current = false;
+
+      const resumeListening = () => {
+        isSpeaking.current = false;
+        if (enableMicRef.current) {
+          recognition.start();
+          isRecognitionActive.current = true;
+        }
+      };
+
+      try {
+        const aiResponse = await AIModel(
+          DiscussionRoomData?.topic || "general",
+          DiscussionRoomData?.coachingOption || "Motivation",
+          userMessage,
+          conversationRef.current
+        );
+
+        setConversation((prev) => [...prev, { role: "assistant", content: aiResponse }]);
+
+        const audioUrl = await ConvertTextToSpeech(
+          aiResponse,
+          expert?.voice || DiscussionRoomData.expertName
+        );
+
+        if (!audioUrl) {
+          resumeListening();
+          return;
+        }
+
+        const audio = new Audio(audioUrl);
+        audio.onended = resumeListening;
+        audio.onerror = resumeListening;
+        audio.play();
+      } catch (err) {
+        console.error("AI Error:", err);
+        resumeListening();
+      }
+    };
+
+    recognition.onresult = (event) => {
       if (isSpeaking.current) return;
 
-      let transcript = "";
+      let interimText = "";
 
       for (let i = event.resultIndex; i < event.results.length; i++) {
-        transcript += event.results[i][0].transcript + " ";
-
+        const text = event.results[i][0].transcript;
         if (event.results[i].isFinal) {
-          const userMessage = transcript.trim();
-
-          setConversation((prev) => [
-            ...prev,
-            { role: "user", content: userMessage },
-          ]);
-
-          try {
-            const aiResponse = await AIModel(
-              DiscussionRoomData?.topic || "general",
-              DiscussionRoomData?.coachingOption || "Motivation",
-              userMessage
-            );
-
-            setConversation((prev) => [
-              ...prev,
-              { role: "assistant", content: aiResponse },
-            ]);
-
-            try {
-              isSpeaking.current = true;
-              recognition.stop();
-              isRecognitionActive.current = false;
-
-              const audioUrl = await ConvertTextToSpeech(
-                aiResponse,
-                expert?.voice || DiscussionRoomData.expertName
-              );
-              const audio = new Audio(audioUrl);
-              audio.onended = () => {
-                isSpeaking.current = false;
-                if (enableMicRef.current) {
-                  recognition.start();
-                  isRecognitionActive.current = true;
-                }
-              };
-              audio.play();
-            } catch (e) {
-              console.error("Speech playback failed:", e);
-              isSpeaking.current = false;
-            }
-          } catch (err) {
-            console.error("AI Error:", err);
-          }
-
-          transcript = "";
+          finalTranscriptRef.current += text + " ";
+        } else {
+          interimText += text;
         }
       }
 
-      setTranscribe(transcript);
+      setTranscribe((finalTranscriptRef.current + interimText).trim());
+
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = setTimeout(commitTurn, SILENCE_DEBOUNCE_MS);
     };
 
     recognition.onerror = () => {
@@ -201,6 +224,13 @@ function DiscussionRoom() {
   };
 
   const disconnect = async () => {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    finalTranscriptRef.current = "";
+    setTranscribe("");
+
     setEnableMic(false);
     enableMicRef.current = false;
     isRecognitionActive.current = false;
@@ -218,11 +248,18 @@ function DiscussionRoom() {
 
     await UpdateConversation({
       id: DiscussionRoomData._id,
-      conversation: conversation,
+      conversation: conversationRef.current,
     });
 
     setEnableFeedbackNotes(true);
   };
+
+  useEffect(() => {
+    return () => {
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      if (recognitionRef.current) recognitionRef.current.abort();
+    };
+  }, []);
 
   return (
     <div className="-mt-12">
@@ -317,9 +354,17 @@ function DiscussionRoom() {
         </div>
       </div>
 
-      <div className="mt-6 p-4 border rounded-lg bg-white shadow-md">
-        <h2>{transcribe}</h2>
-      </div>
+      {enableMic && (
+        <div className="mt-6 p-4 border rounded-lg bg-white shadow-md min-h-[56px] flex items-center gap-2">
+          <span className="relative flex h-2.5 w-2.5 shrink-0">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500"></span>
+          </span>
+          <h2 className="text-gray-700">
+            {transcribe || "Listening..."}
+          </h2>
+        </div>
+      )}
     </div>
   );
 }
