@@ -41,8 +41,6 @@ async function ConvertTextToSpeech(text, expertName) {
 }
 
 
-const SILENCE_DEBOUNCE_MS = 1200;
-
 function DiscussionRoom() {
   const { roomid } = useParams();
   const DiscussionRoomData = useQuery(api.DiscussionRoom.GetDiscussionRoom, {
@@ -58,8 +56,6 @@ function DiscussionRoom() {
   const [transcribe, setTranscribe] = useState("");
   const [conversation, setConversation] = useState([]);
   const conversationRef = useRef([]);
-  const finalTranscriptRef = useRef("");
-  const silenceTimerRef = useRef(null);
   const [enableFeedbackNotes, setEnableFeedbackNotes] = useState(false);
   const [isLoadingFeedback, setIsLoadingFeedback] = useState(false);
 
@@ -121,38 +117,69 @@ function DiscussionRoom() {
     setEnableMic(true);
     enableMicRef.current = true;
 
-    const recognition = new window.webkitSpeechRecognition();
-    recognitionRef.current = recognition;
-    isRecognitionActive.current = true;
+    // Android Chrome's continuous mode is unreliable: it can re-emit
+    // overlapping "final" results that restate everything heard so far,
+    // producing garbled, duplicated transcripts. Listening for one
+    // utterance per session (continuous = false) and restarting right
+    // after avoids that bug entirely, at the cost of a brief gap between
+    // sentences while a new session spins up.
+    function startListening() {
+      if (!enableMicRef.current || isSpeaking.current) return;
 
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = "en-US";
+      const recognition = new window.webkitSpeechRecognition();
+      recognitionRef.current = recognition;
+      isRecognitionActive.current = true;
 
-    // Mobile speech recognition often fires several "final" results for a
-    // single spoken sentence (one per short pause between words). We buffer
-    // every final chunk and only treat the turn as complete once there has
-    // been a real pause in speech, so one utterance becomes one message.
-    const commitTurn = async () => {
-      const userMessage = finalTranscriptRef.current.trim();
-      finalTranscriptRef.current = "";
-      setTranscribe("");
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.lang = "en-US";
 
-      if (!userMessage || isSpeaking.current) return;
+      let finalText = "";
 
-      setConversation((prev) => [...prev, { role: "user", content: userMessage }]);
+      recognition.onresult = (event) => {
+        let interimText = "";
+        for (let i = 0; i < event.results.length; i++) {
+          const text = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalText += text;
+          } else {
+            interimText += text;
+          }
+        }
+        setTranscribe((finalText + interimText).trim());
+      };
 
-      isSpeaking.current = true;
-      recognition.stop();
-      isRecognitionActive.current = false;
-
-      const resumeListening = () => {
-        isSpeaking.current = false;
-        if (enableMicRef.current) {
-          recognition.start();
-          isRecognitionActive.current = true;
+      recognition.onerror = (event) => {
+        // "no-speech" fires routinely whenever nothing was said before the
+        // engine's own timeout — not a real error, just retry via onend.
+        if (event.error !== "no-speech" && event.error !== "aborted") {
+          console.error("Speech recognition error:", event.error);
         }
       };
+
+      recognition.onend = () => {
+        isRecognitionActive.current = false;
+        const userMessage = finalText.trim();
+        setTranscribe("");
+
+        if (userMessage) {
+          commitTurn(userMessage);
+        } else if (enableMicRef.current && !isSpeaking.current) {
+          startListening();
+        }
+      };
+
+      recognition.start();
+    }
+
+    function resumeListening() {
+      isSpeaking.current = false;
+      if (enableMicRef.current) startListening();
+    }
+
+    async function commitTurn(userMessage) {
+      setConversation((prev) => [...prev, { role: "user", content: userMessage }]);
+      isSpeaking.current = true;
 
       try {
         const aiResponse = await AIModel(
@@ -182,53 +209,12 @@ function DiscussionRoom() {
         console.error("AI Error:", err);
         resumeListening();
       }
-    };
+    }
 
-    recognition.onresult = (event) => {
-      if (isSpeaking.current) return;
-
-      let interimText = "";
-
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const text = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          finalTranscriptRef.current += text + " ";
-        } else {
-          interimText += text;
-        }
-      }
-
-      setTranscribe((finalTranscriptRef.current + interimText).trim());
-
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = setTimeout(commitTurn, SILENCE_DEBOUNCE_MS);
-    };
-
-    recognition.onerror = () => {
-      isRecognitionActive.current = false;
-      if (enableMicRef.current && !isSpeaking.current) {
-        recognition.start();
-        isRecognitionActive.current = true;
-      }
-    };
-
-    recognition.onend = () => {
-      isRecognitionActive.current = false;
-      if (enableMicRef.current && !isSpeaking.current) {
-        recognition.start();
-        isRecognitionActive.current = true;
-      }
-    };
-
-    recognition.start();
+    startListening();
   };
 
   const disconnect = async () => {
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
-    }
-    finalTranscriptRef.current = "";
     setTranscribe("");
 
     setEnableMic(false);
@@ -256,7 +242,6 @@ function DiscussionRoom() {
 
   useEffect(() => {
     return () => {
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       if (recognitionRef.current) recognitionRef.current.abort();
     };
   }, []);
